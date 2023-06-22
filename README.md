@@ -1,6 +1,7 @@
 This is a 32-bit protected mode
 
-# MOD player library
+MOD player library
+==================
 
 _for [PMI](https://github.com/a11599/pmi) applications_
 
