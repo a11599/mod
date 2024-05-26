@@ -1169,15 +1169,15 @@ mod_swt_get_mixer_info:
 
 	push edi
 
-	mov edx, [esi - 1]		; [-1][0][1][2]
+	mov edx, [esi - 1]		; [2][1][0][-1]
 	mov ebx, 0x1200			; EBX: index into volume table
 	%%wtl_volume %+ repcnt EQU $ - 3
-	rol edx, 8			; [2][-1][0][1]
+	rol edx, 8			; [1][0][-1][2]
 	mov bl, dl			; [2]
 	movsx eax, word [voltab + ebx * 2] ; EAX: y[2]
 	mov bl, dh			; [-1]
 	movsx ecx, word [voltab + ebx * 2] ; ECX: y[-1]
-	shr edx, 16			; [0][1], EDX high word 0
+	shr edx, 16			; [1][0], EDX high word 0
 	mov bl, dl			; [0]
 	add ecx, eax			; ECX: ym1py2 = y[-1] + y[2]
 	movsx eax, word [voltab + ebx * 2] ; EAX: c0 = y[0]
