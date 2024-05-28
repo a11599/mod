@@ -955,6 +955,20 @@ update_channel_info:
 	ret
 
 
+;------------------------------------------------------------------------------
+; Reset all wavetable channels.
+;------------------------------------------------------------------------------
+
+reset_channels:
+	push edx
+
+	mov dh, [params(initial_pan)]
+	call mod_swt_reset_channels
+
+	pop edx
+	ret
+
+
 ;==============================================================================
 ; DAC playback timer interrupt handlers.
 ;==============================================================================
@@ -1473,7 +1487,7 @@ mod_dev_dac_api	istruc mod_dev_api
 		set_api_fn(get_chn_info, get_channel_info)
 		set_api_fn(get_info, get_info)
 		set_api_fn(get_position, get_position)
-		set_api_fn(reset_channels, mod_swt_reset_channels)
+		set_api_fn(reset_channels, reset_channels)
 		iend
 
 num_channels	db 0			; Number of active channels
