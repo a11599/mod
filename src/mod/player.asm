@@ -863,6 +863,7 @@ mod_set_interpolation:
 ; Set stereo rendering mode.
 ;------------------------------------------------------------------------------
 ; -> AL - Stereo rendering mode (MOD_PAN_*)
+; <- AL - Actual stereo rendering mode
 ;------------------------------------------------------------------------------
 
 global mod_set_stereo_mode
@@ -871,6 +872,43 @@ mod_set_stereo_mode:
 	je .noop
 
 	jmp [dev(set_stereomode)]
+
+.noop:
+	ret
+
+
+;------------------------------------------------------------------------------
+; Set sample rate.
+;------------------------------------------------------------------------------
+; -> EAX - Requested sample rate
+; <- EAX - Actual sample rate
+;------------------------------------------------------------------------------
+
+global mod_set_sample_rate
+mod_set_sample_rate:
+	cmp byte [state], STATE_UNINIT
+	je .noop
+
+	jmp [dev(set_samplerate)]
+
+.noop:
+	ret
+
+
+;------------------------------------------------------------------------------
+; Get the nearest sample rate relative to current.
+;------------------------------------------------------------------------------
+; -> EAX - Steps relative to current sample rate (negative for lower, positive
+;          for higher, zero to return current sample rate)
+; <- EAX - Nearest available sample rate
+;------------------------------------------------------------------------------
+
+global mod_get_nearest_sample_rate
+mod_get_nearest_sample_rate:
+	cmp byte [state], STATE_UNINIT
+	je .noop
+
+	jmp [dev(get_nearest_sr)]
 
 .noop:
 	ret

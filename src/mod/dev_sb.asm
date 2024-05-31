@@ -298,65 +298,35 @@ setup:
 
 	cld
 
+	; Validate device type
+
+	cmp al, MOD_SB_16
+	ja .unknown_device
+
+	; Save parameters
+
 	mov [dev_type], al
 	mov [amplify], cx
-
-	; Copy parameters to local instance
 
 	mov esi, ebx
 	mov edi, params
 	mov ecx, (mod_dev_params.strucsize + 3) / 4
 	rep movsd
 
-	; Validate configuration
+	mov ebx, [params(buffer_size)]
+	mov [wanted_buf_size], ebx
+	mov [wanted_smp_rate], edx
 
-	cmp al, MOD_SB_16
-	ja .unknown_device
-	cmp edx, 8000			; Force minimum 8 kHz samplerate (which
-	jae .check_sample_rate_max	; will still sound awful)
-	mov edx, 8000
+	; Get output device format and maximum sample rate
 
-.check_sample_rate_max:
-	cmp edx, 44100			; Limit maximum to 44.1 kHz
-	jbe .check_sb1
-	mov edx, 44100
-
-.check_sb1:
-	cmp al, MOD_SB_1
-	jne .check_sb2
-	mov ah, FMT_8BIT | FMT_MONO | FMT_UNSIGNED
-	jmp .limit_22khz
-
-.check_sb2:
-	cmp al, MOD_SB_2
-	jne .check_sbpro
-	mov ah, FMT_8BIT | FMT_MONO | FMT_UNSIGNED
-	jmp .save_config
-
-.check_sbpro:
-	cmp al, MOD_SB_PRO
-	jne .check_sb16
-	mov ah, FMT_8BIT | FMT_STEREO | FMT_UNSIGNED
-	cmp byte [params(stereo_mode)], MOD_PAN_MONO
-	je .save_config
-
-.limit_22khz:
-	cmp edx, 22050			; Limit SB / Pro stereo max sample rate
-	jbe .save_config
-	mov edx, 22050
-	jmp .save_config
-
-.check_sb16:
-	mov ah, FMT_16BIT | FMT_STEREO | FMT_UNSIGNED
-
-.save_config:
-	cmp byte [params(stereo_mode)], MOD_PAN_MONO
-	jne .use_output_format
-	and ah, ~FMT_CHANNELS
-	or ah, FMT_MONO
-
-.use_output_format:
+	mov ah, [params(stereo_mode)]
+	call check_hw_caps
 	mov [output_format], ah
+	test ah, FMT_STEREO		; Check if device supports stereo
+	jnz .log_config
+	mov byte [params(stereo_mode)], MOD_PAN_MONO
+
+.log_config:
 
 	%if (LOG_LEVEL >= LOG_INFO)
 
@@ -376,92 +346,52 @@ setup:
 
 	%endif
 
-.reset_device:
-
 	; Reset Sound Blaster DSP
 
-	push edx
 	mov dx, [params(port)]
 	call reset_dsp
-	pop edx
 	jc .sb_error
 
-.calc_sample_rate:
+	; Allocate memory for the output buffer. Allocate a buffer that is
+	; large enough even for stereo (for SB Pro and 16), even if mono output
+	; was requested, so stereo mode can be enabled later without having to
+	; reallocate the output buffer. We may technically overallocate for
+	; SB Pro since it is capped at ~22 kHz in stereo mode.
 
-	; Calculate time constant/actual sample rate
+	mov al, [dev_type]		; Get maximum capabilities of the device
+	mov ah, MOD_PAN_MONO		; Use mono for max sample rate on SB Pro
+	test byte [params(flags)], MOD_FLG_FMT_CHG
+	jnz .check_max_sample_rate
+	mov ah, [params(stereo_mode)]	; Format change not allowed
 
-	mov eax, edx			; SB16 can use sample rate directly
-	cmp byte [dev_type], MOD_SB_16
-	je .use_sample_rate
+.check_max_sample_rate:
+	mov cl, ah			; CL: buffer stereo mode backup
+	mov edx, -1
+	test byte [params(flags)], MOD_FLG_SR_CHG
+	jnz .get_hw_caps
+	mov edx, [wanted_smp_rate]	; Sample rate change not allowed
 
-	; Time constant only for SB/SB Pro
+.get_hw_caps:
+	call check_hw_caps
+	test ah, FMT_STEREO		; Check if device supports stereo
+	jnz .check_format_fixed
+	mov byte [params(stereo_mode)], MOD_PAN_MONO
 
-	xor cl, cl
-	cmp byte [dev_type], MOD_SB_PRO
-	jne .mono_time_constant
+.check_format_fixed:
+	test byte [params(flags)], MOD_FLG_FMT_CHG
+	jnz .check_sample_rate
 	cmp byte [params(stereo_mode)], MOD_PAN_MONO
-	setne cl			; CL: 1 if SB Pro (stereo), else 0
+	jne .check_sample_rate
+	and ah, ~FMT_CHANNELS		; Output fixed to mono mode
+	or ah, FMT_MONO
+	mov [output_format], ah
 
-.mono_time_constant:
-	mov ebx, edx
-	shl ebx, cl			; * 2 for SB Pro stereo output
-	mov eax, 256000000
-	xor edx, edx
-	div ebx
-	add eax, 128
-	xor al, al
-	mov edx, 65536
-	sub edx, eax
-	mov [time_constant], dh		; Save time constant
-	mov ebx, eax
-	shl ebx, cl			; * 2 for SB Pro stereo output
-	mov eax, 256000000
-	xor edx, edx
-	div ebx
-	shr ebx, 1			; EBX: time constant / 2
-	cmp edx, ebx			; Remainder > time constant / 2
-	setae dl
-	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
-	add eax, edx
-
-.use_sample_rate:
-	mov [sample_rate], eax		; Save actual sample rate
-
-	; Calculate period -> SW wavetable speed conversion base
-
-	mov ebx, eax
-	mov edx, 0x361
-	mov eax, 0xf0f00000
-	div ebx
-	shr ebx, 1			; EBX: sample rate / 2
-	cmp edx, ebx			; Remainder > sample rate / 2?
-	setae dl
-	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
-	add eax, edx
-	mov [period_base], eax
-
-	; Allocate memory for the output buffer
-
-	mov eax, [sample_rate]		; Convert microsec to buffer size
-	mov ebx, [params(buffer_size)]
-	cmp ebx, 1000000
-	jae .limit_buffer_size
-	mul ebx
-	mov ebx, 1000000
-	div ebx
-	cmp edx, 500000			; Rounding
-	setae dl
-	movzx edx, dl
-	add eax, edx
-
-.check_buffer_size:
-	cmp eax, 5456			; Maximum safe buffer size
-	jbe .use_buffer_size
-
-.limit_buffer_size:
-	mov eax, 5456
-
-.use_buffer_size:
+.check_sample_rate:
+	mov al, [dev_type]
+	mov ah, cl
+	call calc_sample_rate		; Get actual sample rate
+	mov ebx, [wanted_buf_size]
+	call calc_buf_size		; Get buffer size in samples
 	mov [params(buffer_size)], eax
 
 	mov ebx, eax
@@ -471,8 +401,6 @@ setup:
 	setnz ch			; CH: 1 when stereo, else 0
 	add cl, ch
 	shl ebx, cl			; Calculate buffer size in bytes
-	mov [shl_per_sample], cl	; Save shift left count per sample
-	mov [buffer_size], ebx
 	lea ecx, [ebx + ebx * 2]	; Triple buffering
 	mov al, PMI_MEM_DMA
 	call pmi(mem_alloc)
@@ -482,6 +410,11 @@ setup:
 
 	log LOG_DEBUG, {'Allocated {u} bytes for output device DMA buffer at 0x{X}', 13, 10, 'DMA buffer physical address: 0x{X}', 13, 10}, ecx, eax, ebx
 
+	mov al, [dev_type]
+	mov ah, [params(stereo_mode)]
+	call calc_sample_rate
+	mov [sample_rate], edx		; Save actual sample rate
+
 	; Setup wavetable
 
 	mov al, [params(interpolation)]
@@ -490,6 +423,13 @@ setup:
 	mov ecx, [params(buffer_size)]
 	mov dl, [output_format]
 	mov dh, [params(initial_pan)]
+	cmp ah, MOD_PAN_MONO		; Set output format to mono when mono
+	jne .setup_wt			; playback was requested
+	and dl, ~FMT_CHANNELS
+	or dl, FMT_MONO
+	mov [output_format], dl
+
+.setup_wt:
 	call mod_swt_setup
 	jc .error
 	mov [amplify], bx
@@ -519,6 +459,152 @@ setup:
 	pop ebx
 	stc
 	jmp .exit
+
+
+;------------------------------------------------------------------------------
+; Get the maximum capabilities of the Sound Blaster card variant.
+;------------------------------------------------------------------------------
+; -> AL - Sound Blaster device type
+;    AH - Wanted output stereo mode (MOD_PAN_*)
+;    EDX - Requested sample rate
+; <- AH - Bitstream format supported by the device
+;         Note: FMT_STEREO will always be set if the device is capable of
+;         stereo playback, regardless of wanted output stereo mode
+;    EDX - Maximum supported sample rate for device in given stereo mode
+;------------------------------------------------------------------------------
+
+check_hw_caps:
+	cmp edx, 8000			; Force minimum 8 kHz samplerate (which
+	jae .check_sample_rate_max	; will still sound awful)
+	mov edx, 8000
+
+.check_sample_rate_max:
+	cmp edx, 44100			; Limit maximum to 44.1 kHz
+	jbe .check_sb1
+	mov edx, 44100
+
+.check_sb1:
+	cmp al, MOD_SB_1
+	jne .check_sb2
+	mov ah, FMT_8BIT | FMT_MONO | FMT_UNSIGNED
+	jmp .limit_22khz
+
+.check_sb2:
+	cmp al, MOD_SB_2
+	jne .check_sbpro
+	mov ah, FMT_8BIT | FMT_MONO | FMT_UNSIGNED
+	jmp .done
+
+.check_sbpro:
+	cmp al, MOD_SB_PRO
+	jne .check_sb16
+	cmp ah, MOD_PAN_MONO
+	mov ah, FMT_8BIT | FMT_STEREO | FMT_UNSIGNED
+	je .done
+
+.limit_22khz:
+	cmp edx, 22050			; Limit SB / Pro stereo max sample rate
+	jbe .done
+	mov edx, 22050
+	jmp .done
+
+.check_sb16:
+	mov ah, FMT_16BIT | FMT_STEREO | FMT_UNSIGNED
+
+.done:
+	ret
+
+
+;------------------------------------------------------------------------------
+; Calculate actual sample rate and time constant.
+;------------------------------------------------------------------------------
+; -> AL - Sound Blaster device type
+;    AH - Wanted output stereo mode (MOD_PAN_*)
+;    EDX - Requested sample rate
+; <- EDX - Actual playback sample rate of the device
+;    [time_constant] - Set with SB/SB Pro time constant for programming
+;------------------------------------------------------------------------------
+
+calc_sample_rate:
+	cmp al, MOD_SB_16		; SB16 can use sample rate directly
+	je .done
+
+	; Time constant only for SB/SB Pro
+
+	push eax
+	push ebx
+	push ecx
+
+	xor cl, cl
+	cmp al, MOD_SB_PRO
+	jne .mono_time_constant
+	cmp ah, MOD_PAN_MONO
+	setne cl			; CL: 1 if SB Pro (stereo), else 0
+
+.mono_time_constant:
+	mov ebx, edx
+	shl ebx, cl			; * 2 for SB Pro stereo output
+	mov eax, 256000000
+	xor edx, edx
+	div ebx
+	add eax, 128
+	xor al, al
+	mov edx, 65536
+	sub edx, eax
+	mov [time_constant], dh		; Save time constant
+	mov ebx, eax
+	shl ebx, cl			; * 2 for SB Pro stereo output
+	mov eax, 256000000
+	xor edx, edx
+	div ebx
+	shr ebx, 1			; EBX: time constant / 2
+	cmp edx, ebx			; Remainder > time constant / 2
+	setae dl
+	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
+	add edx, eax
+
+	pop ecx
+	pop ebx
+	pop eax
+
+.done:
+	ret
+
+
+;------------------------------------------------------------------------------
+; Calculate buffer size from microseconds to samples.
+;------------------------------------------------------------------------------
+; -> EBX - Requested buffer size in microseconds
+;    EDX - Actual sample rate
+; <- EAX - Buffer size in samples
+;------------------------------------------------------------------------------
+
+calc_buf_size:
+	push ebx
+	push edx
+
+	mov eax, edx			; Convert microsec to buffer size
+	cmp ebx, 1000000
+	jae .limit_buffer_size
+	mul ebx
+	mov ebx, 1000000
+	div ebx
+	cmp edx, 500000			; Rounding
+	setae dl
+	movzx edx, dl
+	add eax, edx
+
+.check_buffer_size:
+	cmp eax, 5456			; Maximum safe buffer size
+	jbe .done
+
+.limit_buffer_size:
+	mov eax, 5456
+
+.done:
+	pop edx
+	pop ebx
+	ret
 
 
 ;------------------------------------------------------------------------------
@@ -571,13 +657,184 @@ set_channels:
 ; <- AH.AL - Actual audio amplification level
 ;------------------------------------------------------------------------------
 
-	align 4
-
 set_amplify:
 	mov [amplify], ax
 	call mod_swt_set_amplify
 	mov [amplify], ax
 
+	ret
+
+
+;------------------------------------------------------------------------------
+; Set stereo rendering mode.
+;------------------------------------------------------------------------------
+; -> AL - Stereo rendering mode (MOD_PAN_*)
+; <- AL - New stereo rendering mode
+;------------------------------------------------------------------------------
+
+set_stereo_mode:
+	push eax
+	push ebx
+	push edx
+
+	mov ah, [params(stereo_mode)]
+	cmp al, ah
+	je .done
+
+	cmp al, MOD_PAN_MONO
+	sete dl				; DL: 1 if new mode is mono
+	cmp ah, MOD_PAN_MONO
+	sete dh				; DH: 1 if current mode is mono
+	add dl, dh			; DL: 1 if output format changes
+	jz .set_wt			; Same output format
+
+	test byte [params(flags)], MOD_FLG_FMT_CHG
+	jz .done			; Format change not allowed
+	mov ebx, eax			; BL: new stereo mode, BH: current
+	mov ah, al			; Get card capabilities
+	mov al, [dev_type]
+	mov edx, [wanted_smp_rate]
+	call check_hw_caps
+	cmp bl, MOD_PAN_MONO
+	je .mono			; Switch to mono output
+	test ah, FMT_STEREO		; Stereo not supported by card
+	jz .done
+	jmp .stereo			; Switch to stereo output
+
+.mono:
+	and ah, ~FMT_CHANNELS
+	or ah, FMT_MONO
+
+.stereo:
+	call stop			; Stop playback
+	mov [output_format], ah		; Update output format
+	mov al, ah
+	call mod_swt_set_output_format
+	mov al, bl			; Set new stereo mode
+	mov [params(stereo_mode)], bl
+	call mod_swt_set_stereo_mode
+	call play			; Restart playback
+	jmp .done
+
+.set_wt:
+	mov [params(stereo_mode)], al
+	call mod_swt_set_stereo_mode
+
+.done:
+	pop edx
+	pop ebx
+	mov al, [params(stereo_mode)]
+	mov [esp], al
+	pop eax
+	ret
+
+
+;------------------------------------------------------------------------------
+; Get the nearest sample rate relative to current.
+;------------------------------------------------------------------------------
+; -> EAX - Steps relative to current sample rate (negative for lower, positive
+;          for higher, zero to return current sample rate)
+; <- EAX - Nearest available sample rate
+;------------------------------------------------------------------------------
+
+get_nearest_sample_rate:
+	push ebx
+	push ecx
+	push edx
+
+	cmp byte [dev_type], MOD_SB_16
+	jne .time_constant
+
+	mov edx, -1			; Snap to maximum sample rate
+	cmp eax, 60000
+	jge .check_caps
+	xor edx, edx			; Snap to minimum sample rate
+	cmp eax, -60000
+	jle .check_caps
+	add eax, [sample_rate]		; EAX: new sample rate
+	js .check_caps			; Negative: snap to minimum rate
+	mov edx, eax			; EDX: wanted new sample rate
+	jmp .check_caps
+
+.time_constant:
+
+	; Calculate next time constant for SB / SB Pro
+
+	mov edx, -1			; Snap to maximum sample rate
+	cmp eax, 255
+	jge .check_caps
+	xor edx, edx			; Snap to minimum sample rate
+	cmp eax, -255
+	jle .check_caps
+	movzx ebx, byte [time_constant]	; EBX: current time constant
+	add eax, ebx			; EAX: new time constant
+	js .check_caps			; Negative: snap to minimum sample rate
+	shl eax, 8
+	mov ebx, 65536
+	sub ebx, eax
+
+	; Calculate real sample rate for new time constant
+
+	mov eax, 256000000
+	xor edx, edx
+	div ebx
+	shr ebx, 1			; EBX: time constant / 2
+	cmp edx, ebx			; Remainder > time constant / 2
+	setae dl
+	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
+	add edx, eax
+
+	cmp byte [dev_type], MOD_SB_PRO
+	jne .check_caps
+	test byte [output_format], FMT_STEREO
+	jz .check_caps
+	shr edx, 1			; Half samplerate for SB Pro
+
+.check_caps:
+	mov al, [dev_type]
+	mov ah, [params(stereo_mode)]
+	call check_hw_caps		; Limit rate to device capabilities
+	mov ah, [params(stereo_mode)]
+	mov bl, [time_constant]		; BL: current time constant
+	call calc_sample_rate		; Get actual sample rate
+	mov [time_constant], bl		; Restore time constant
+	mov eax, edx			; Return actual sample rate
+
+	pop edx
+	pop ecx
+	pop ebx
+	ret
+
+
+;------------------------------------------------------------------------------
+; Set sample rate.
+;------------------------------------------------------------------------------
+; -> EAX - Requested sample rate
+; <- EAX - Actual sample rate
+;------------------------------------------------------------------------------
+
+set_sample_rate:
+	push edx
+
+	test byte [params(flags)], MOD_FLG_SR_CHG
+	jz .done
+
+	mov [wanted_smp_rate], eax	; Save current wanted sample rate
+	mov edx, eax
+	mov al, [dev_type]
+	mov ah, [params(stereo_mode)]
+	call check_hw_caps		; Get maximum sample rate
+	mov ah, [params(stereo_mode)]
+	call calc_sample_rate		; Get actual sample rate
+	cmp edx, [sample_rate]
+	je .done			; No change
+
+	call stop			; Stop playback
+	call play			; Restart playback
+
+.done:
+	pop edx
+	mov eax, [sample_rate]
 	ret
 
 
@@ -596,15 +853,67 @@ play:
 	push edi
 	push ebp
 
-	; Reset audio output
+	; Initialize buffer variables
 
-	mov dh, [params(initial_pan)]
-	call mod_swt_reset_channels
+	mov al, [dev_type]		; Calculate actual sample rate
+	mov ah, [params(stereo_mode)]
+	mov edx, [wanted_smp_rate]
+	call check_hw_caps
+	mov ah, [params(stereo_mode)]
+	call calc_sample_rate
+	mov ebp, [sample_rate]		; EBP: previous sample rate
+	mov [sample_rate], edx		; Save actual sample rate
+	mov ebx, [wanted_buf_size]	; Calculate actual buffer size
+	call calc_buf_size
+	mov [params(buffer_size)], eax
+
+	mov ebx, [params(buffer_size)]
+	test byte [output_format], FMT_16BIT
+	setnz cl			; CL: 1 when 16 bit, else 0
+	test byte [output_format], FMT_STEREO
+	setnz ch			; CH: 1 when stereo, else 0
+	add cl, ch
+	shl ebx, cl			; Calculate buffer size in bytes
+	mov [shl_per_sample], cl	; Save shift left count per sample
+	mov [buffer_size], ebx
 
 	mov byte [buffer_playprt], 0
 	mov dword [play_sam_int], 0
 	mov dword [play_sam_fr], 0
 	mov byte [playing], 1
+
+	; Calculate period -> SW wavetable speed conversion base
+
+	mov ebx, [sample_rate]
+	mov edx, 0x361
+	mov eax, 0xf0f00000
+	div ebx
+	shr ebx, 1			; EBX: sample rate / 2
+	cmp edx, ebx			; Remainder > sample rate / 2?
+	setae dl
+	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
+	add eax, edx
+	mov [period_base], eax
+
+	; Recalculate sample speed and tick rate when sample rate changed
+
+	cmp ebp, [sample_rate]
+	je .init_buffer
+	mov eax, 0x0400
+	xor ebx, ebx
+
+.adjust_period_loop:
+	mov ecx, [channel_period + ebx * 4]
+	call set_mixer
+	inc al
+	inc ebx
+	cmp al, MOD_MAX_CHANS
+	jb .adjust_period_loop
+
+	mov ebx, [tick_rate]
+	call set_tick_rate
+
+.init_buffer:
 
 	; Pre-render into output buffer before starting playback
 
@@ -882,6 +1191,7 @@ stop:
 
 	write_dsp 0, 0xd5
 	write_dsp 0x0c, 0xd9
+	call wait_55ms			; Wait a bit for things to settle down
 
 .reset_irq:
 
@@ -924,6 +1234,10 @@ set_mixer:
 	push ecx
 	push edx
 
+	xor edx, edx			; Save current period for channel
+	mov dl, al
+	mov [channel_period + edx * 4], ecx
+
 	push eax
 	xor eax, eax
 	test ecx, ecx			; Guard against division by zero hangs
@@ -962,6 +1276,8 @@ set_tick_rate:
 	push eax
 	push ebx
 	push edx
+
+	mov [tick_rate], ebx		; Save current tick rate
 
 	; Calculate number of samples between player ticks
 
@@ -1315,16 +1631,28 @@ update_channel_info:
 
 
 ;------------------------------------------------------------------------------
-; Reset all wavetable channels.
+; Reset all wavetable channels. Called on playback init by the playroutine and
+; on song rewind.
 ;------------------------------------------------------------------------------
 
 reset_channels:
+	push eax
+	push ecx
 	push edx
+	push edi
 
-	mov dh, [params(initial_pan)]
+	mov dh, [params(initial_pan)]	; Reset software wavetable
 	call mod_swt_reset_channels
 
+	xor eax, eax			; Clear saved period values
+	mov ecx, MOD_MAX_CHANS
+	mov edi, channel_period
+	rep stosd
+
+	pop edi
 	pop edx
+	pop ecx
+	pop eax
 	ret
 
 
@@ -1574,7 +1902,7 @@ mod_dev_sb_api	istruc mod_dev_api
 		set_api_fn(set_channels, set_channels)
 		set_api_fn(set_amplify, set_amplify)
 		set_api_fn(set_interpol, mod_swt_set_interpolation)
-		set_api_fn(set_stereomode, mod_swt_set_stereo_mode)
+		set_api_fn(set_stereomode, set_stereo_mode)
 		set_api_fn(play, play)
 		set_api_fn(stop, stop)
 		set_api_fn(set_tick_rate, set_tick_rate)
@@ -1585,6 +1913,8 @@ mod_dev_sb_api	istruc mod_dev_api
 		set_api_fn(get_info, get_info)
 		set_api_fn(get_position, get_position)
 		set_api_fn(reset_channels, reset_channels)
+		set_api_fn(set_samplerate, set_sample_rate)
+		set_api_fn(get_nearest_sr, get_nearest_sample_rate)
 		iend
 
 blaster_env	db 'BLASTER', 0		; Environment var. name for detection
@@ -1604,11 +1934,15 @@ position_info	resb mod_position_info.strucsize * 3
 channel_info	resb mod_channel_info.strucsize * MOD_MAX_CHANS * 3
 params		resd (mod_dev_params.strucsize + 3) / 4
 period_base	resd 1			; Period to speed conversion base
+wanted_smp_rate	resd 1			; Requested sample rate
 sample_rate	resd 1			; Actual playback sample rate
+wanted_buf_size	resd 1			; Wanted buffer size in microseconds
 buffer_addr	resd 1			; Linear address of output buffer
 dma_addr	resd 1			; Physical address of output buffer
 buffer_size	resd 1			; Size of the output buffer
 buffer_systicks	resd 1			; Systimer tick at buffer flip
+channel_period	resd MOD_MAX_CHANS	; Current period for each channel
+tick_rate	resd 1			; Current playroutine tick rate
 
 play_tickr_int	resd 1			; Number of samples between player ticks
 play_tickr_fr	resd 1			; Fraction part of the above

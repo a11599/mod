@@ -8,6 +8,7 @@ extern mod_swt_setup
 extern mod_swt_shutdown
 extern mod_swt_upload_sample
 extern mod_swt_free_sample
+extern mod_swt_set_output_format
 extern mod_swt_set_channels
 extern mod_swt_set_amplify
 extern mod_swt_set_interpolation

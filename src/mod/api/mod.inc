@@ -15,6 +15,8 @@ extern mod_unload
 extern mod_set_amplify
 extern mod_set_interpolation
 extern mod_set_stereo_mode
+extern mod_set_sample_rate
+extern mod_get_nearest_sample_rate
 extern mod_play
 extern mod_get_position
 extern mod_set_position

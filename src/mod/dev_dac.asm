@@ -84,56 +84,32 @@ setup:
 
 	cld
 
+	; Validate device type
+
+	cmp al, MOD_DAC_LPTDUAL
+	ja .unknown_device
+
+	; Save parameters
+
 	mov [dev_type], al
 	mov [amplify], cx
-
-	; Copy parameters to local instance
 
 	mov esi, ebx
 	mov edi, params
 	mov ecx, (mod_dev_params.strucsize + 3) / 4
 	rep movsd
 
-	; Validate configuration
+	mov ebx, [params(buffer_size)]
+	mov [wanted_buf_size], ebx
+	mov [wanted_smp_rate], edx
 
-	cmp al, MOD_DAC_LPTDUAL
-	ja .unknown_device
-
-.check_sample_rate_min:
-	cmp edx, 8000			; Force minimum 8 kHz samplerate (which
-	jae .check_sample_rate_max	; will still sound awful)
-	mov edx, 8000
-
-.check_sample_rate_max:
-	cmp al, MOD_DAC_SPEAKER
-	je .check_sample_rate_max_speaker
-	cmp edx, 100000			; Limit maximum to 100 kHz for LPT DACs
-	jbe .save_config
-	mov edx, 100000
-	jmp .save_config
-
-.check_sample_rate_max_speaker:
-	cmp edx, 29000			; Limit maximum to 29 kHz for PC speaker
-	jbe .save_config		; Higher values would reduce bitdepth
-	mov edx, 29000			; too much
-
-.save_config:
-	mov ah, FMT_UNSIGNED		; Set output bitstream format flags
-	or ah, FMT_8BIT
-	cmp al, MOD_DAC_LPTST
-	je .stereo_device
-	cmp al, MOD_DAC_LPTDUAL
-	je .stereo_device
-	or ah, FMT_MONO
-	jmp .use_output_format
-
-.stereo_device:
-	cmp byte [params(stereo_mode)], MOD_PAN_MONO
-	je .use_output_format
-	or ah, FMT_STEREO
-
-.use_output_format:
+	call check_hw_caps
 	mov [output_format], ah
+	test ah, FMT_STEREO		; Check if device supports stereo
+	jnz .log_config
+	mov byte [params(stereo_mode)], MOD_PAN_MONO
+
+.log_config:
 
 	%if (LOG_LEVEL >= LOG_INFO)
 
@@ -142,103 +118,56 @@ setup:
 	cmp al, MOD_DAC_SPEAKER
 	jne .check_lpt
 	log LOG_INFO, {'Output device: Internal PC speaker', 13, 10}
-	jmp .calc_pit_rate
+	jmp .alloc_buffer
 
 .check_lpt:
 	cmp al, MOD_DAC_LPT
 	jne .check_lptst
 	log LOG_INFO, {'Output device: Mono LPT DAC on port 0x{X16}', 13, 10}, [params(port)]
-	jmp .calc_pit_rate
+	jmp .alloc_buffer
 
 .check_lptst:
 	cmp al, MOD_DAC_LPTST
 	jne .check_lptdual
 	log LOG_INFO, {'Output device: Stereo LPT DAC on port 0x{X16}', 13, 10}, [params(port)]
-	jmp .calc_pit_rate
+	jmp .alloc_buffer
 
 .check_lptdual:
 	cmp al, MOD_DAC_LPTDUAL
-	jne .calc_pit_rate
+	jne .alloc_buffer
 	log LOG_INFO, {'Output device: Dual LPT DACs on port 0x{X16} and 0x{X16}', 13, 10}, [params(port)], [params(port + 2)]
 
 	%endif
 
-.calc_pit_rate:
+.alloc_buffer:
 
-	; Calculate PIT/actual sample rate
+	; Allocate memory for the output buffer.
 
-	call timer_calc_rate
-	mov [pit_rate], bx
-	mov [sample_rate], eax		; Save actual sample rate
+	mov edx, -1
+	test byte [params(flags)], MOD_FLG_SR_CHG
+	jnz .get_hw_caps
+	mov edx, [wanted_smp_rate]	; Sample rate change not allowed
 
-	; Calculate period -> SW wavetable speed conversion base
-
-	mov ebx, eax
-	mov edx, 0x361
-	mov eax, 0xf0f00000
-	div ebx
-	shr ebx, 1			; EBX: sample rate / 2
-	cmp edx, ebx			; Remainder > sample rate / 2?
-	setae dl
-	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
-	add eax, edx
-	mov [period_base], eax
-
-	; Allocate memory for the output buffer
-
-	mov eax, [sample_rate]		; Convert microsec to buffer size
-	mov ebx, [params(buffer_size)]
-	cmp ebx, 1000000
-	jae .limit_buffer_size
-	mul ebx
-	mov ebx, 1000000
-	div ebx
-	cmp edx, 500000			; Rounding
-	setae dl
-	movzx edx, dl
-	add eax, edx
-
-.check_buffer_size:
-	cmp eax, 4096			; Maximum sane buffer size
-	jbe .use_buffer_size
-
-.limit_buffer_size:
-	mov eax, 4096
-
-.use_buffer_size:
+.get_hw_caps:
+	mov al, [dev_type]
+	call check_hw_caps		; Enforce sample rate limits
+	call calc_sample_rate		; Get actual sample rate
+	mov ebx, [wanted_buf_size]
+	call calc_buf_size		; Get buffer size in samples
 	mov [params(buffer_size)], eax
 
 	mov ebx, eax
-	shl ebx, 3			; 32-bit stereo buffer of SW wavetable
-	mov [buffer_size], ebx
+	shl ebx, 3			; 32-bit stereo buffer for SW wavetable
 	lea ecx, [ebx + ebx * 2]	; Triple buffering
 	mov al, PMI_MEM_HI_LO
 	call pmi(mem_alloc)
 	jc .error
 	mov [buffer_addr], eax
 
-	log {'Allocated {u} bytes for output device buffer at 0x{X}', 13, 10}, ecx, eax
+	log LOG_DEBUG, {'Allocated {u} bytes for output device buffer at 0x{X}', 13, 10}, ecx, eax
 
-	cmp byte [dev_type], MOD_DAC_SPEAKER
-	jne .setup_wt
-
-	; Create speaker sample lookup table
-
-	xor ebx, ebx			; EBX: sample (0 - 255)
-	movzx ecx, word [pit_rate]	; ECX: timer IRQ PIT rate (always 8-bit)
-	cmp ecx, 64
-	jbe .speakertab_loop
-	mov ecx, 64
-
-.speakertab_loop:
-	mov al, bl
-	mul cl
-	inc ah
-	mov [speakertab + ebx], ah
-	inc bl
-	jnz .speakertab_loop
-
-.setup_wt:
+	call calc_sample_rate
+	mov [sample_rate], edx		; Save actual sample rate
 
 	; Setup wavetable
 
@@ -248,6 +177,13 @@ setup:
 	xor ecx, ecx			; Render to output buffer directly
 	mov dl, [output_format]
 	mov dh, [params(initial_pan)]
+	cmp ah, MOD_PAN_MONO		; Set output format to mono when mono
+	jne .setup_wt			; playback was requested
+	and dl, ~FMT_CHANNELS
+	or dl, FMT_MONO
+	mov [output_format], dl
+
+.setup_wt:
 	call mod_swt_setup
 	jc .error
 	mov [amplify], bx
@@ -273,6 +209,110 @@ setup:
 	pop ebx
 	stc
 	jmp .exit
+
+
+;------------------------------------------------------------------------------
+; Get the maximum capabilities of the DAC variant.
+;------------------------------------------------------------------------------
+; -> AL - DAC device type
+;    EDX - Requested sample rate
+; <- AH - Bitstream format supported by the device
+;         Note: FMT_STEREO will always be set if the device is capable of
+;         stereo playback, regardless of wanted output stereo mode
+;    EDX - Maximum supported sample rate for device
+;------------------------------------------------------------------------------
+
+check_hw_caps:
+	cmp edx, 8000			; Force minimum 8 kHz samplerate (which
+	jae .check_sample_rate_max	; will still sound awful)
+	mov edx, 8000
+
+.check_sample_rate_max:
+	cmp al, MOD_DAC_SPEAKER
+	je .check_sample_rate_max_speaker
+	cmp edx, 44100			; Limit maximum to 44.1 kHz for LPT DACs
+	jbe .set_output_format
+	mov edx, 44100
+	jmp .set_output_format
+
+.check_sample_rate_max_speaker:
+	cmp edx, 29000			; Limit maximum to 29 kHz for PC speaker
+	jbe .set_output_format		; Higher values would reduce bitdepth
+	mov edx, 29000			; too much
+
+.set_output_format:
+	mov ah, FMT_UNSIGNED		; Set output bitstream format flags
+	or ah, FMT_8BIT
+	cmp al, MOD_DAC_LPTST
+	je .stereo_device
+	cmp al, MOD_DAC_LPTDUAL
+	je .stereo_device
+	or ah, FMT_MONO
+	jmp .done
+
+.stereo_device:
+	or ah, FMT_STEREO
+
+.done:
+	ret
+
+
+;------------------------------------------------------------------------------
+; Calculate actual sample rate and PIT timer reload value (rate).
+;------------------------------------------------------------------------------
+; -> EDX - Requested sample rate
+; <- EDX - Actual playback sample rate of the device
+;    [pit_rate] - Set with SB/SB Pro time constant for programming
+;------------------------------------------------------------------------------
+
+calc_sample_rate:
+	push eax
+	push ebx
+
+	call timer_calc_rate
+	mov [pit_rate], bx
+
+	mov edx, eax
+
+	pop ebx
+	pop eax
+	ret
+
+
+;------------------------------------------------------------------------------
+; Calculate buffer size from microseconds to samples.
+;------------------------------------------------------------------------------
+; -> EBX - Requested buffer size in microseconds
+;    EDX - Actual sample rate
+; <- EAX - Buffer size in samples
+;------------------------------------------------------------------------------
+
+calc_buf_size:
+	push ebx
+	push edx
+
+	mov eax, edx			; Convert microsec to buffer size
+	cmp ebx, 1000000
+	jae .limit_buffer_size
+	mul ebx
+	mov ebx, 1000000
+	div ebx
+	cmp edx, 500000			; Rounding
+	setae dl
+	movzx edx, dl
+	add eax, edx
+
+.check_buffer_size:
+	cmp eax, 4096			; Maximum sane buffer size
+	jbe .done
+
+.limit_buffer_size:
+	mov eax, 4096
+
+.done:
+	pop edx
+	pop ebx
+	ret
 
 
 ;------------------------------------------------------------------------------
@@ -325,13 +365,150 @@ set_channels:
 ; <- AH.AL - Actual audio amplification level
 ;------------------------------------------------------------------------------
 
-	align 4
-
 set_amplify:
 	mov [amplify], ax
 	call mod_swt_set_amplify
 	mov [amplify], ax
 
+	ret
+
+
+;------------------------------------------------------------------------------
+; Set stereo rendering mode.
+;------------------------------------------------------------------------------
+; -> AL - Stereo rendering mode (MOD_PAN_*)
+; <- AL - New stereo rendering mode
+;------------------------------------------------------------------------------
+
+set_stereo_mode:
+	push eax
+	push ebx
+	push edx
+
+	mov ah, [params(stereo_mode)]
+	cmp al, ah
+	je .done
+
+	cmp al, MOD_PAN_MONO
+	sete dl				; DL: 1 if new mode is mono
+	cmp ah, MOD_PAN_MONO
+	sete dh				; DH: 1 if current mode is mono
+	add dl, dh			; DL: 1 if output format changes
+	jz .set_wt			; Same output format
+
+	test byte [params(flags)], MOD_FLG_FMT_CHG
+	jz .done			; Format change not allowed
+	mov ebx, eax			; BL: new stereo mode, BH: current
+	mov edx, [wanted_smp_rate]
+	mov al, [dev_type]
+	call check_hw_caps
+	cmp bl, MOD_PAN_MONO
+	je .mono			; Switch to mono output
+	test ah, FMT_STEREO		; Stereo not supported by card
+	jz .done
+	jmp .stereo			; Switch to stereo output
+
+.mono:
+	and ah, ~FMT_CHANNELS
+	or ah, FMT_MONO
+
+.stereo:
+	call stop			; Stop playback
+	mov [output_format], ah		; Update output format
+	mov al, ah
+	call mod_swt_set_output_format
+	mov al, bl			; Set new stereo mode
+	mov [params(stereo_mode)], bl
+	call mod_swt_set_stereo_mode
+	call play			; Restart playback
+	jmp .done
+
+.set_wt:
+	mov [params(stereo_mode)], al
+	call mod_swt_set_stereo_mode
+
+.done:
+	pop edx
+	pop ebx
+	mov al, [params(stereo_mode)]
+	mov [esp], al
+	pop eax
+	ret
+
+
+;------------------------------------------------------------------------------
+; Get the nearest sample rate relative to current.
+;------------------------------------------------------------------------------
+; -> EAX - Steps relative to current sample rate (negative for lower, positive
+;          for higher, zero to return current sample rate)
+; <- EAX - Nearest available sample rate
+;------------------------------------------------------------------------------
+
+get_nearest_sample_rate:
+	push ebx
+	push ecx
+	push edx
+
+	xor edx, edx			; Snap to minimum sample rate
+	cmp eax, -1000
+	jle .check_caps
+	dec edx				; Snap to maximum sample rate
+	cmp eax, 1000
+	jge .check_caps
+	movzx ebx, word [pit_rate]	; EBX: current PIT reload value
+	sub ebx, eax			; Lower reload -> higher sample rate
+	js .check_caps			; Negative: snap to maximum sample rate
+
+	; Calculate real interrupt rate for PIT reload value
+
+	xor edx, edx
+	mov eax, 1193182		; EAX: 1193182 (PIT osc. frequency)
+	div ebx				; EAX: real interrupt rate
+	mov ecx, ebx			; ECX: real interrupt rate / 2
+	shr ecx, 1
+	cmp edx, ecx			; Remainder > real interrupt rate / 2?
+	setae dl
+	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
+	add edx, eax
+
+.check_caps:
+	mov al, [dev_type]
+	call check_hw_caps		; Limit rate to device capabilities
+	call timer_calc_rate		; Get actual timer rate
+
+	pop edx
+	pop ecx
+	pop ebx
+	ret
+
+
+;------------------------------------------------------------------------------
+; Set sample rate.
+;------------------------------------------------------------------------------
+; -> EAX - Requested sample rate
+; <- EAX - Actual sample rate
+;------------------------------------------------------------------------------
+
+set_sample_rate:
+	push edx
+
+	test byte [params(flags)], MOD_FLG_SR_CHG
+	jz .done
+
+	mov [wanted_smp_rate], eax	; Save current wanted sample rate
+	mov edx, eax
+	mov al, [dev_type]
+	call check_hw_caps		; Get maximum sample rate
+	call calc_sample_rate		; Get actual sample rate
+	cmp edx, [sample_rate]
+	je .done			; No change
+
+	call stop			; Stop playback
+	call play			; Restart playback
+
+.done:
+	pop edx
+	mov eax, [sample_rate]
 	ret
 
 
@@ -350,10 +527,21 @@ play:
 	push edi
 	push ebp
 
-	; Reset audio output
+	; Initialize buffer variables
 
-	mov dh, [params(initial_pan)]
-	call mod_swt_reset_channels
+	mov edx, [wanted_smp_rate]	; Calculate actual sample rate
+	mov al, [dev_type]
+	call check_hw_caps
+	call calc_sample_rate
+	mov ebp, [sample_rate]		; EBP: previous sample rate
+	mov [sample_rate], edx		; Save actual sample rate
+	mov ebx, [wanted_buf_size]	; Calculate actual buffer size
+	call calc_buf_size
+	mov [params(buffer_size)], eax
+
+	mov ebx, [params(buffer_size)]
+	shl ebx, 3			; *8 (2 dwords per sample)
+	mov [buffer_size], ebx
 
 	mov byte [buffer_playprt], 0
 	mov dword [play_sam_int], 0
@@ -364,6 +552,39 @@ play:
 	mov [buffer_limit], eax
 	mov byte [playing], 1
 
+	; Calculate period -> SW wavetable speed conversion base
+
+	mov ebx, [sample_rate]
+	mov edx, 0x361
+	mov eax, 0xf0f00000
+	div ebx
+	shr ebx, 1			; EBX: sample rate / 2
+	cmp edx, ebx			; Remainder > sample rate / 2?
+	setae dl
+	movzx edx, dl			; EDX: 1 when yes, 0 otherwise
+	add eax, edx
+	mov [period_base], eax
+
+	; Recalculate sample speed and tick rate when sample rate changed
+
+	cmp ebp, [sample_rate]
+	je .init_buffer
+	mov eax, 0x0400
+	xor ebx, ebx
+
+.adjust_period_loop:
+	mov ecx, [channel_period + ebx * 4]
+	call set_mixer
+	inc al
+	inc ebx
+	cmp al, MOD_MAX_CHANS
+	jb .adjust_period_loop
+
+	mov ebx, [tick_rate]
+	call set_tick_rate
+
+.init_buffer:
+
 	; Pre-render into output buffer before starting playback
 
 	mov byte [buffer_pending], BUF_READY
@@ -373,6 +594,26 @@ play:
 	call render
 	mov byte [buffer_status], BUF_RENDER_3
 	call render
+
+	; Create speaker sample lookup table
+
+	cmp byte [dev_type], MOD_DAC_SPEAKER
+	jne .setup_irq
+	xor ebx, ebx			; EBX: sample (0 - 255)
+	movzx ecx, word [pit_rate]	; ECX: timer IRQ PIT rate (always 8-bit)
+	cmp ecx, 64
+	jbe .speakertab_loop
+	mov ecx, 64
+
+.speakertab_loop:
+	mov al, bl
+	mul cl
+	inc ah
+	mov [speakertab + ebx], ah
+	inc bl
+	jnz .speakertab_loop
+
+.setup_irq:
 
 	; Setup and install IRQ 0 handler
 
@@ -430,13 +671,13 @@ play:
 
 .start_lpt_dac_stereo_mono:
 
-	; Stereo LPT DAC with forced mono output. Enable both channels, then
-	; start output via normal mono LPT DAC output routine.
+	; Stereo LPT DAC with forced mono output. Output same sample on both
+	; channels.
 
-	mov al, LPTST_CHN_BOTH
-	out dx, al
-	sub edx, 2
-	jmp .start_lpt_dac
+	mov word [lpt_dac_stereo_mono_irq0_player_segment], ds
+	mov [lpt_dac_stereo_mono_irq0_ctrl_port], edx
+	mov edx, lpt_dac_stereo_mono_irq0_handler
+	jmp .setup_irq_handler
 
 .start_lpt_dac_dual:
 
@@ -534,8 +775,8 @@ stop:
 
 	; Restore speaker state
 
-	in al,0x61			; Turn off speaker
-	and al,0xfc
+	in al, 0x61			; Turn off speaker
+	and al, 0xfc
 	out 0x61,al
 	mov al, 0xb6			; Reset PIT channel 2 to square wave
 	out 0x43, al
@@ -589,6 +830,10 @@ set_mixer:
 	push ecx
 	push edx
 
+	xor edx, edx			; Save current period for channel
+	mov dl, al
+	mov [channel_period + edx * 4], ecx
+
 	push eax
 	xor eax, eax
 	test ecx, ecx			; Guard against division by zero hangs
@@ -627,6 +872,8 @@ set_tick_rate:
 	push eax
 	push ebx
 	push edx
+
+	mov [tick_rate], ebx		; Save current tick rate
 
 	; Calculate number of samples between player ticks
 
@@ -956,16 +1203,28 @@ update_channel_info:
 
 
 ;------------------------------------------------------------------------------
-; Reset all wavetable channels.
+; Reset all wavetable channels. Called on playback init by the playroutine and
+; on song rewind.
 ;------------------------------------------------------------------------------
 
 reset_channels:
+	push eax
+	push ecx
 	push edx
+	push edi
 
-	mov dh, [params(initial_pan)]
+	mov dh, [params(initial_pan)]	; Reset software wavetable
 	call mod_swt_reset_channels
 
+	xor eax, eax			; Clear saved period values
+	mov ecx, MOD_MAX_CHANS
+	mov edi, channel_period
+	rep stosd
+
+	pop edi
 	pop edx
+	pop ecx
+	pop eax
 	ret
 
 
@@ -1257,6 +1516,73 @@ lpt_dac_stereo_irq0_handler:
 
 
 ;------------------------------------------------------------------------------
+; Stereo LPT DAC mono output IRQ 0 handler.
+;------------------------------------------------------------------------------
+
+	align 16
+
+lpt_dac_stereo_mono_irq0_handler:
+	irq0_start
+
+	mov ax, 0x1234
+	lpt_dac_stereo_mono_irq0_player_segment EQU $ - 2
+	mov ds, ax
+
+	; Output next sample
+
+	mov esi, [buffer_pos]
+	mov eax, [esi]
+	mov edx, 0x12345678
+	lpt_dac_stereo_mono_irq0_ctrl_port EQU $ - 4
+	add eax, 0x8080			; Convert to unsigned
+	add esi, 8
+	test eax, 0xffff0000
+	jnz .clip			; Clipping
+
+	; Output same sample to both channels
+
+	mov al, LPTST_CHN_LEFT
+	mov [buffer_pos], esi
+	out dx, al
+	sub edx, 2
+	mov al, ah
+	out dx, al
+	mov al, LPTST_CHN_RIGHT
+	add edx, 2
+	out dx, al
+	mov al, ah
+	out dx, al
+
+	advance_buffer
+	irq0_eoi 0
+
+	align 16
+
+.clip:
+	cmp eax, 0
+	setg ah				; AH: 1 if positive clip, else 0
+	mov [buffer_pos], esi
+	neg ah				; AH: 255 if positive clip, else 0
+
+	; Output same sample to both channels
+
+	mov al, LPTST_CHN_LEFT		; Output same sample to both channels
+	mov [buffer_pos], esi
+	out dx, al
+	sub edx, 2
+	mov al, ah
+	out dx, al
+	mov al, LPTST_CHN_RIGHT
+	add edx, 2
+	out dx, al
+	mov al, ah
+	out dx, al
+
+	advance_buffer
+	irq0_eoi 0
+
+
+;------------------------------------------------------------------------------
 ; Dual LPT DAC output IRQ 0 handler.
 ;------------------------------------------------------------------------------
 
@@ -1477,7 +1803,7 @@ mod_dev_dac_api	istruc mod_dev_api
 		set_api_fn(set_channels, set_channels)
 		set_api_fn(set_amplify, set_amplify)
 		set_api_fn(set_interpol, mod_swt_set_interpolation)
-		set_api_fn(set_stereomode, mod_swt_set_stereo_mode)
+		set_api_fn(set_stereomode, set_stereo_mode)
 		set_api_fn(play, play)
 		set_api_fn(stop, stop)
 		set_api_fn(set_tick_rate, set_tick_rate)
@@ -1488,6 +1814,8 @@ mod_dev_dac_api	istruc mod_dev_api
 		set_api_fn(get_info, get_info)
 		set_api_fn(get_position, get_position)
 		set_api_fn(reset_channels, reset_channels)
+		set_api_fn(set_samplerate, set_sample_rate)
+		set_api_fn(get_nearest_sr, get_nearest_sample_rate)
 		iend
 
 num_channels	db 0			; Number of active channels
@@ -1498,11 +1826,15 @@ position_info	resb mod_position_info.strucsize * 3
 channel_info	resb mod_channel_info.strucsize * MOD_MAX_CHANS * 3
 params		resd (mod_dev_params.strucsize + 3) / 4
 period_base	resd 1			; Period to speed conversion base
+wanted_smp_rate	resd 1			; Requested sample rate
 sample_rate	resd 1			; Actual playback sample rate
+wanted_buf_size	resd 1			; Wanted buffer size in microseconds
 buffer_addr	resd 1			; Linear address of output buffer
 buffer_size	resd 1			; Size of the output buffer
 buffer_limit	resd 1			; End of current playing buffer
 buffer_pos	resd 1			; Buffer playback position
+channel_period	resd MOD_MAX_CHANS	; Current period for each channel
+tick_rate	resd 1			; Current playroutine tick rate
 
 play_tickr_int	resd 1			; Number of samples between player ticks
 play_tickr_fr	resd 1			; Fraction part of the above

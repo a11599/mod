@@ -17,6 +17,11 @@ MOD_ERR_DEVICE	EQU 0x104		; Output device not responding
 MOD_FLG_PAN	EQU 0x00000001		; MOD uses 8xx or E8x effect
 MOD_FLG_EXT_OCT	EQU 0x00000002		; MOD uses non-ProTracker periods
 
+; MOD player flags
+
+MOD_FLG_FMT_CHG	EQU 0x01		; Enable on-the-fly output format change
+MOD_FLG_SR_CHG	EQU 0x02		; Enable on-the-fly sample rate change
+
 ; Output devices
 
 MOD_OUT_NONE	EQU 0			; No sound (but still run the player)
@@ -41,7 +46,7 @@ MOD_SB_16	EQU 3			; Sound Blaster 16
 
 MOD_PAN_MONO	EQU 0			; Force mono rendering on stereo device
 MOD_PAN_HARD	EQU 1			; Hard panning left/right (Amiga-style)
-MOD_PAN_CROSS	EQU 2			; Crossfade 20%, ignore panning commands
+MOD_PAN_CROSS	EQU 2			; Crossfade 75%, ignore panning commands
 MOD_PAN_REAL	EQU 3			; Real panning (use effects 8xx and E8x)
 
 ; Sample interpolation methods

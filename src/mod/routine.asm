@@ -127,6 +127,7 @@ mod_playroutine_init:
 
 	mov al, [mod(num_channels)]
 	call [dev(set_channels)]
+	call [dev(reset_channels)]	; Reset wavetable channels
 
 	pop edi
 	pop ecx
@@ -582,7 +583,6 @@ mod_playroutine_set_position:
 	test ax, ax			; Reset speed and BPM when jumping to
 	jnz .stop_channels		; start of song
 	call mod_playroutine_init	; Re-initialize playroutine
-	call [dev(reset_channels)]	; Reset wavetable channels
 	jmp .set_sequence
 
 .stop_channels:

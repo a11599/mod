@@ -19,6 +19,7 @@ struc		mod_dev_params
 .stereo_mode	resb 1			; Stereo mixing mode
 .initial_pan	resb 1			; Initial panning for real stereo mode
 .interpolation	resb 1			; Sample interpolation
+.flags		resb 1			; Control flags
 		alignb 4
 .strucsize:
 

@@ -68,7 +68,7 @@ Not supported:
 
 - No sound (keeps the player running without actually playing anything)
 - PC speaker up to 29 kHz sample rate
-- LPT DAC variants (single, dual, stereo) up to 100 kHz sample rate
+- LPT DAC variants (single, dual, stereo) up to 44.1 kHz sample rate
 - Sound Blaster, Pro and 16 up to 22/44.1 kHz sample rate (depending on actual model)
 
 ## Audio features
@@ -137,16 +137,16 @@ Initialize the MOD player and selected output device.
 
 Inputs:
 
-- AH: Output device, see output device table constants below.
-- AL: Output device type, see output device table constants below.
-- EBX: Pointer to `mod_dev_params` structure.
-- CH.CL: Initial amplification in 8.8 bit fixed point format. Refer to `mod_set_amplify` for details.
-- EDX: Requested output mixing sample rate.
+- `AH`: Output device, see output device table constants below.
+- `AL`: Output device type, see output device table constants below.
+- `EBX`: Pointer to `mod_dev_params` structure.
+- `CH.CL`: Initial amplification in 8.8 bit fixed point format. Refer to `mod_set_amplify` for details.
+- `EDX`: Requested output mixing sample rate.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set) or actual output mixing sample rate.
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set) or actual output mixing sample rate.
 
 Supported output devices:
 
@@ -154,45 +154,46 @@ Supported output devices:
 | ----- | -------------- | ----------------- | ----------- |
 | 0 / 0 | `MOD_OUT_NONE` | `MOD_NONE`        | Keeps the player running without rendering any audio output. |
 | 1 / 0 | `MOD_OUT_DAC`  | `MOD_DAC_SPEAKER` | Mono 5.3 - 6 bit playback on the PC speaker. Maximum sample rate is 29 kHz. Fixed configuration, does not need `port`, `irq` or `dma` configuration in `mod_dev_params`. |
-| 1 / 1 | `MOD_OUT_DAC`  | `MOD_DAC_LPT`     | Mono 8 bit playback on a parallel port D/A converter (Covox). Maximum sample rate is 100 kHz. Requires `port` to be specified in `mod_dev_params`. |
-| 1 / 2 | `MOD_OUT_DAC`  | `MOD_DAC_LPTST`   | Stereo 8 bit playback on a stereo-on-1 parallel port D/A converter. Maximum sample rate is 100 kHz. Requires `port` to be specified in `mod_dev_params`. |
-| 1 / 3 | `MOD_OUT_DAC`  | `MOD_DAC_LPTDUAL` | Stereo 8 bit playback on two parallel port D/A converters. Maximum sample rate is 100 kHz. Requires two I/O ports to be specified in `mod_dev_params.port`. |
+| 1 / 1 | `MOD_OUT_DAC`  | `MOD_DAC_LPT`     | Mono 8 bit playback on a parallel port D/A converter (Covox). Maximum sample rate is 44.1 kHz. Requires `port` to be specified in `mod_dev_params`. |
+| 1 / 2 | `MOD_OUT_DAC`  | `MOD_DAC_LPTST`   | Stereo 8 bit playback on a stereo-on-1 parallel port D/A converter. Maximum sample rate is 44.1 kHz. Requires `port` to be specified in `mod_dev_params`. |
+| 1 / 3 | `MOD_OUT_DAC`  | `MOD_DAC_LPTDUAL` | Stereo 8 bit playback on two parallel port D/A converters. Maximum sample rate is 44.1 kHz. Requires two I/O ports to be specified in `mod_dev_params.port`. |
 | 2 / 0 | `MOD_OUT_SB`   | `MOD_SB_1`        | Mono 8 bit playback on original Sound Blaster (no auto-init DMA). Maximum sample rate is 22 kHz. Requires `port`, `irq` and `dma` to be set in `mod_dev_params.port`. |
 | 2 / 1 | `MOD_OUT_SB`   | `MOD_SB_2`        | Mono 8 bit playback on Sound Blaster 2.0. Maximum sample rate is 44 kHz. Requires `port`, `irq` and `dma` to be set in `mod_dev_params.port`. |
 | 2 / 2 | `MOD_OUT_SB`   | `MOD_SB_PRO`      | Stereo 8 bit playback on Sound Blaster Pro. Maximum sample rate is 22 kHz in stereo or 44 kHz in mono mode. Requires `port`, `irq` and `dma` to be set in `mod_dev_params.port`. |
-| 2 / 3 | `MOD_OUT_SB`   | `MOD_SB_16`       | Stereo 16 bit playback on Sound Blaster 16. Maximum sample rate is 44.1 kHz. Requires `port`, `irq` and both 8-bit and 16-bit DMA channels to in `dma` to be set in `mod_dev_params.port`. 8-bit and 16-bit `dma` may contain the same value (some clone cards may not support 16-bit DMA channels, set the 8-bit DMA channel number for the 16-bit DMA entry in this case). |
+| 2 / 3 | `MOD_OUT_SB`   | `MOD_SB_16`       | Stereo 16 bit playback on Sound Blaster 16. Maximum sample rate is 44.1 kHz. Requires `port`, `irq` and both 8-bit and 16-bit DMA channels in `dma` to be set in `mod_dev_params.port`. 8-bit and 16-bit `dma` may contain the same value (some clone cards may not support 16-bit DMA channels, set the 8-bit DMA channel number for the 16-bit DMA entry in this case). |
 
 - `MOD_OUT_NONE` and `MOD_OUT_DAC` use the timer interrupt (IRQ 0) for audio playback or to keep the player running.
-- `MOD_OUT_SB` uses the Sound Blaster's IRQ and its 16 or 8-bit DMA channel for audio playback and to keep the player running.
+- `MOD_OUT_SB` uses the Sound Blaster's IRQ and a 16 or 8-bit DMA channel for audio playback and to keep the player running.
 - For `MOD_DAC_LPTST`, the strobe and auto linefeed pins are used to select the output channel the following way:
   - Strobe (pin 1): output on left channel when high
   - Auto line feed (pin 14): output on right channel when high
+  - Essentially the auto line feed pin is low when strobe is high and vice versa.
 
 The `mod_dev_params` structure defines additional parameters for the output device:
 
 | offset | name            | size  | description |
 | ------ | --------------- | ----- | ----------- |
 | 0x00   | `buffer_size`   | 4     | Requested size of the output buffer in microseconds. Refer to `mod_render` on details about how to set the buffer size to keep the MOD player from interrupting your rendering process. |
-| 0x04   | `port`          | 2 x 2 | I/O port(s) of the device. |
+| 0x04   | `port`          | 2 x 2 | Base I/O port(s) of the device. |
 | 0x08   | `irq`           | 2 x 1 | IRQ(s) used by the device. |
 | 0x0a   | `dma`           | 2 x 1 | 8-bit (low) and 16-bit (high) DMA channels used by the device. |
 | 0x0c   | `stereo_mode`   | 1     | Stereo panning mode for stereo output devices. See `MOD_PAN_*` constants below. |
-| 0x0e   | `initial_pan`   | 1     | Set initial panning for real stereo mode. Set to `0x80` to pan all channels to center (mono) on start, `0x0` to hard pan left/right or any value in-between for crossfade panning. The panning will be overwritten based on `8xx` and `E8x` MOD effects. |
-| 0x0f   | `interpolation` | 1     | Set the initial interpolation method. See `MOD_IPOL_*` constants below. |
+| 0x0d   | `initial_pan`   | 1     | Set initial panning for real stereo mode. Set to `0x80` to pan all channels to center (mono) on start, `0x0` to hard pan left/right or any value in-between for crossfade panning. Actual panning will be changed by `8xx` and `E8x` MOD effects. |
+| 0x0e   | `interpolation` | 1     | Set the initial interpolation method. See `MOD_IPOL_*` constants below. |
+| 0x0f   | `flags`         | 1     | Player behavior control flags. See `MOD_FLG_*` constants below. |
 
 The following values are supported for stereo panning mode on stereo output devices:
 
 | value | name            | description |
 | ----- | --------------- | ----------- |
-| 0     | `MOD_PAN_MONO`  | Force mono output. The device is setup for mono output during `mod_setup` and cannot be changed back to stereo later. |
-| 1     | `MOD_PAN_HARD`  | Pan channels to hard left/right as on the Amiga. |
+| 0     | `MOD_PAN_MONO`  | Force mono output. |
+| 1     | `MOD_PAN_HARD`  | Pan channels to hard left/right as on the Amiga. True to the original but not very enjoyable unless the MOD was especially crafted for hard panning. `MOD_PAN_MONO` or `MOD_PAN_CROSS` usually provide a more enjoyable listening experience for MODs that don't use panning effects. |
 | 2     | `MOD_PAN_CROSS` | Pan channels to hard left/right and apply a 75% amplitude cross-mixing between channels. This is a nice compromise that adds some fake sense of space to the music with only minimal CPU overhead. |
-| 3     | `MOD_PAN_REAL`  | Pan channels according to 8xx and E8x effects in the MOD file. Channels are initially panned as specified in `mod_dev_params.initial_pan`. This uses significantly more CPU than the others (around 1.4x compared to hard panning). |
+| 3     | `MOD_PAN_REAL`  | Pan channels according to `8xx` and `E8x` effects in the MOD file. Channels are initially panned as specified in `mod_dev_params.initial_pan`. This uses significantly more CPU than the others (around 1.4x compared to hard panning). |
 
 When mono playback is requested:
 
-- The strobe and auto line feed pins will be set to high for `MOD_DAC_LPTST`. Not all stereo-on-1 devices implement this (some only use strobe or auto line feed to toggle left/right) and hence may only play mono audio on one channel (either left or right, depending on implementation).
-- The same sample is send to both DACs for `MOD_DAC_LPTDUAL`.
+- `MOD_DAC_LPTST` and `MOD_DAC_LPTDUAL` will output the same sample on both channels/DACs.
 - `MOD_SB_PRO` and `MOD_SB_16` are setup for mono playback.
 
 The following values are available to select the interpolation method:
@@ -202,6 +203,15 @@ The following values are available to select the interpolation method:
 | 0     | `MOD_IPOL_NN`     | Nearest neighbor or zero-order hold or incorrectly also known as no interpolation. This method sustains the sample value until the next one and produces horrible aliasing artifacts. However, several MOD files - especially older ones with lower quality samples - rely on these artifacts and will sound dull with better interpolation methods. |
 | 1     | `MOD_IPOL_LINEAR` | Fast 8-bit linear interpolation. This method generates samples in-between by using a simple weighted average. It is similar to the mixing quality of the Gravis Ultrasound, although that has 16-bit interpolation which reduces the noise level. It is a big step forward in quality that leaves some of the artifacts of nearest neighbor interpolation so that even old MODs can remain somewhat enjoyable. It uses about 2x CPU as nearest neighbor on a Pentium MMX. |
 | 2     | `MOD_IPOL_WATTE`  | High quality 16-bit trilinear interpolation implementing Jon Watte's algorithm from Olli Niemitalo's "Polynomial Interpolators for High-Quality Resampling of Oversampled Audio" paper (deip.pdf). It does an excellent job to cut off aliasing artifacts while also preserving most frequencies at the passband, but can render MODs with low quality samples completely unenjoyable. It uses about 3.7x CPU as nearest neighbor on a Pentium MMX. |
+
+The following flags are available for controlling player behavior:
+
+| value | name              | description |
+| ----- | ----------------- | ----------- |
+| 0x01  | `MOD_FLG_FMT_CHG` | Enable on-the-fly bitstream format change during playback. This allows switching between mono and stereo output on devices where this results in a device reinitialization. The player will allocate a stereo output/render buffer for stereo output devices even when mono output is forced using `MOD_PAN_MONO`. |
+| 0x02  | `MOD_FLG_SR_CHG`  | Enable on-the-fly sample rate changes during playback. The player will allocate an output/render buffer that is large enough to contain samples up to the highest supported sample rate of the device. |
+
+These flags are for advanced player usage by standalone players. For normal embedded usage as a background music player in your application you usually don't need to set any of them.
 
 ### `mod_shutdown`
 
@@ -213,8 +223,8 @@ None.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
 
 ## MOD file handling
 
@@ -224,12 +234,12 @@ Load a MOD file from disk to memory.
 
 Inputs:
 
-- EBX: File handle of the MOD opened for (at least) read access. The caller is responsible to open the file and set the current file pointer at the start of the MOD binary. (This is useful if the MOD is packaged along with other files for easier distribution.)
+- `EBX`: File handle of the MOD opened for (at least) read access. The caller is responsible to open the file and set the current file pointer at the start of the MOD binary. (This is useful if the MOD is packaged along with other files for easier distribution.)
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
 
 The MOD will be loaded into extended memory when possible.
 
@@ -243,8 +253,8 @@ None.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
 
 ## Playback control
 
@@ -258,8 +268,8 @@ None.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
 
 ### `mod_set_amplify`
 
@@ -269,11 +279,11 @@ This function can be called before or during playback to change the output level
 
 Inputs:
 
-- AH.AL: Amplification as 8.8 bit fixed point number.
+- `AH.AL`: Amplification as 8.8 bit fixed point number.
 
 Outputs:
 
-- AH.AL: Actual amplification level as 8.8 bit fixed point number.
+- `AH.AL`: Actual amplification level as 8.8 bit fixed point number.
 
 Set AX to `0x0100` for 1x, `0x0180` for 1.5x `0x0200` for 2.0x amplification, and so on. Please refer to [Wikipedia](https://en.wikipedia.org/wiki/Fixed-point_arithmetic) if you are not familiar with fixed point artihmetics.
 
@@ -283,7 +293,7 @@ Set the interpolation method. This function can be called before or during playb
 
 Inputs:
 
-- AL: Sample interpolation method. See `MOD_IPOL_*` constants.
+- `AL`: Sample interpolation method. See `MOD_IPOL_*` constants.
 
 Outputs:
 
@@ -291,15 +301,45 @@ None.
 
 ### `mod_set_stereo_mode`
 
-Set the stereo panning method for stereo output devices. The function does nothing if the device is mono or has been forced to mono output in `mod_setup`. This function can be called before or during playback. The change becomes effective at the next audio rendering pass (~ 2 * render buffer size latency).
+Set the stereo panning method for stereo output devices. The function does nothing if the device is mono. This function can be called before or during playback. The change becomes effective at the next audio rendering pass (~ 2 * render buffer size latency).
+
+Switching between mono and stereo on DAC and Sound Blaster devices during playback is only possible when the `MOD_FLG_FMT_CHG` flag was set during device setup. On these devices, switching between mono and any stereo mode will flush the audio buffer and reinitialize the output device.
 
 Inputs:
 
-- AL: Stereo panning method. See `MOD_PAN_*` constants.
+- `AL`: Stereo panning method. See `MOD_PAN_*` constants.
 
 Outputs:
 
-None.
+- `AL`: Actual stereo panning method (always `MOD_PAN_MONO` for mono devices).
+
+### `mod_set_sample_rate`
+
+Change the sample rate. This is only allowed on DAC and Sound Blaster devices if the `MOD_FLG_SR_CHG` flag was set during device setup. This operation will flush the audio buffer and reinitialize the output device.
+
+Inputs:
+
+- `EAX`: Requested new sample rate.
+
+Outputs:
+
+- `EAX`: Actual sample rate.
+
+### `mod_get_nearest_sample_rate`
+
+Get the closest sample rate relative to current sample rate for the selected output device. Some devices (all DACs, the original Sound Blaster and Pro) are limited to a limited set of possible sample rates.
+
+For example, DAC devices which use the timer interrupt can sample at 44192 Hz or 42614 Hz, but not in between. When a sample rate is specified during device initialization or via `mod_set_sample_rate`, the device will use the nearest possible value. This is one step in the example, so if the current sample rate is 44192 Hz and this function is called with `EAX` = `-1`, the function will return `42614` in `EAX`.
+
+Sound Blaster 16 in contrast can use any sample rate, so if the current sample rate is 44100 Hz and this function is called with `EAX` = `-1`, the function will return `44099` in `EAX`.
+
+Inputs:
+
+- `EAX`: Number of steps relative to current sample rate. Use negative amount for lower, positive for higher sample rates.
+
+Outputs:
+
+- `EAX`: Nearest possible sample rate.
 
 ### `mod_set_position`
 
@@ -307,14 +347,14 @@ Set the position of the playroutine. The change becomes effective at the next au
 
 Inputs:
 
-- AH: Sequence entry number, starting at 0. Adjusted to last sequence entry when out of range.
-- AL: Row within the current pattern, 0 - 63. Clipped to 63 if a higher value is given.
-- DL: Set to 1 to stop playback of samples in channels before changing the position, 0 to keep them playing.
+- `AH`: Sequence entry number, starting at 0. Adjusted to last sequence entry when out of range.
+- `AL`: Row within the current pattern, 0 - 63. Clipped to 63 if a higher value is given.
+- `DL`: Set to 1 to stop playback of samples in channels before changing the position, 0 to keep them playing.
 
 Outputs:
 
-- AH: Actual sequence entry number, starting at 0.
-- AL: Actual row within the current pattern, 0 - 63.
+- `AH`: Actual sequence entry number, starting at 0.
+- `AL`: Actual row within the current pattern, 0 - 63.
 
 ### `mod_stop`
 
@@ -326,8 +366,8 @@ None.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
 
 ### `mod_render`
 
@@ -360,7 +400,7 @@ Applications where this matters usually run in a vsync-locked render loop. Let's
 
 ### `mod_get_info`
 
-Returns information about the current MOD file. This function can be called when a MOD is loaded by the player.
+Return information about the current MOD file. This function can be called when a MOD is loaded by the player.
 
 Inputs:
 
@@ -368,10 +408,10 @@ None.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set) or linear address of `mod_info` structure.
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set) or linear address of `mod_info` structure.
 
-The `mod_info` structure is static and depends only on the MOD currently loaded by the player. can be freed by the caller using `mem_free` PMI service when the data is no longer needed.
+The `mod_info` structure is static and depends only on the MOD currently loaded by the player. It can be freed by the caller using the `mem_free` PMI service when the data is no longer needed.
 
 | offset | name            | size | description |
 | ------ | --------------- | ---- | ----------- |
@@ -404,13 +444,13 @@ Return information on current MOD player channels. This function can be called d
 
 Inputs:
 
-- ESI: Pointer to memory area for an array of `mod_channel_info` data for each channel used by the MOD file. The buffer must be large enough to contain information for all channels (see `mod_info.num_channels`).
+- `ESI`: Pointer to memory area for an array of `mod_channel_info` data for each channel used by the MOD file. The buffer must be large enough to contain information for all channels (see `mod_info.num_channels`).
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
-- ESI: Populated with an array of `mod_channel_info` structures.
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
+- `ESI`: Populated with an array of `mod_channel_info` structures.
 
 Each `mod_channel_info` structure contains the following data:
 
@@ -431,13 +471,13 @@ Get information about the output device's current status. This function can be c
 
 Inputs:
 
-- ESI: Pointer to memory area for a `mod_output_info` structure.
+- `ESI`: Pointer to memory area for a `mod_output_info` structure.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
-- ESI: Populated with `mod_output_info` structure data.
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
+- `ESI`: Populated with `mod_output_info` structure data.
 
 When the output device is `MOD_OUT_NONE`, this function is not doing anything since there is no actual audio rendering.
 
@@ -458,7 +498,7 @@ The type of the output buffer is represented by the following values:
 | 0x03  | `MOD_BUF_DEPTH`   | Bitmask to extract audio bitdepth from format byte. |
 | 0x00  | `MOD_BUF_8BIT`    | 8-bit samples, 1 byte each. |
 | 0x01  | `MOD_BUF_16BIT`   | 16-bit samples, 2 bytes each. |
-| 0x02  | `MOD_BUF_1632BIT` | 16-bit samples, 4 bytes each. |
+| 0x02  | `MOD_BUF_1632BIT` | 16-bit samples, 4 bytes each, may overflow 16-bit range. |
 | 0x0c  | `MOD_BUF_CHANNEL` | Bitmask to extract number of channels from format byte. |
 | 0x00  | `MOD_BUF_1CHN`    | 1 channel (mono). |
 | 0x04  | `MOD_BUF_2CHN`    | 2 channels (stereo). |
@@ -469,7 +509,7 @@ The type of the output buffer is represented by the following values:
 
 ### `mod_get_position`
 
-Returns the current position of the playroutine. This can be off by several ticks, depending on the size of the render buffer. Use `mod_get_position_info` for a more accurate reading that accounts for the buffer. The purpose of this method is to get current information for relative position jumps via `mod_set_position`.
+Return the current position of the playroutine. This can be off by several ticks, depending on the size of the render buffer. Use `mod_get_position_info` for a more accurate reading that accounts for the buffer. The purpose of this method is to get current information for relative position jumps via `mod_set_position`.
 
 Inputs:
 
@@ -477,9 +517,9 @@ None.
 
 Outputs:
 
-- AH: Sequence entry number, starting at 0.
-- AL: Row within the current pattern, 0 - 63.
-- DL: Current tick within the row, starting at 0.
+- `AH`: Sequence entry number, starting at 0.
+- `AL`: Row within the current pattern, 0 - 63.
+- `DL`: Current tick within the row, starting at 0.
 
 ### `mod_get_position_info`
 
@@ -487,13 +527,13 @@ Get information about the song position currently played. This function can be c
 
 Inputs:
 
-- ESI: Pointer to memory area for a `mod_position_info` structure.
+- `ESI`: Pointer to memory area for a `mod_position_info` structure.
 
 Outputs:
 
-- CF: Set if failed.
-- EAX: Error code if failed (CF is set).
-- ESI: Populated with `mod_position_info` structure data.
+- `CF`: Set if failed.
+- `EAX`: Error code if failed (`CF` is set).
+- `ESI`: Populated with `mod_position_info` structure data.
 
 The `mod_position_info` structure contains the following data:
 
@@ -525,9 +565,9 @@ The MOD library supports a few compilation-time parameters defined in `src\mod\c
 
 - `UNROLL_MAX_SPD`: Maximum sample playback speed which is supported by the unrolled audio mixer. Default value is `17` which is a safe value for all supported MOD notes and output sample rates. The maximum supported unroll speed also has an impact on memory used for samples.
 
-- `LIN_IPOL_EXP`: Maximum linear interpolation oversampling exponent. The actual oversampling is 2 ^ LIN_IPOL_EXP. Default value is `5`, which results in 32x oversampling (2 ^ 5 = 32). This is enough for up to 46.4 kHz sample rate for all supported MOD notes. Keep in mind that each additional oversampling requires 1024 bytes of memory for the interpolation lookup table. You can reduce this value to `3` (8x oversampling) if you only want to play standard ProTracker MODs.
+- `LIN_IPOL_EXP`: Maximum linear interpolation oversampling exponent. The actual oversampling is 2 ^ `LIN_IPOL_EXP`. Default value is `5`, which results in 32x oversampling (2 ^ 5 = 32). This is enough for up to 46.4 kHz sample rate for all supported MOD notes. Keep in mind that each additional oversampling requires 1024 bytes of memory for the interpolation lookup table. You can reduce this value to `3` (8x oversampling) if you only want to play standard ProTracker MODs.
 
-- `WATTE_IPOL_EXP`: Maximum oversampling exponent for Watte trilinear interpolation. The actual oversampling is 2 ^ WATTE_IPOL_EXP. Default value is `5`, which results in 32x oversampling (2 ^ 5 = 32). This is enough for up to 46.4 kHz sample rate for all supported MOD notes. Keep in mind that each additional oversampling requires 2 additional clock cycles on the 386 and 486 due to larger numbers being multiplied. You can reduce this value to `3` (8x oversampling) if you only want to play standard ProTracker MODs.
+- `WATTE_IPOL_EXP`: Maximum oversampling exponent for Watte trilinear interpolation. The actual oversampling is 2 ^ `WATTE_IPOL_EXP`. Default value is `5`, which results in 32x oversampling (2 ^ 5 = 32). This is enough for up to 46.4 kHz sample rate for all supported MOD notes. Keep in mind that each additional oversampling requires 2 additional clock cycles on the 386 and 486 due to larger numbers being multiplied. You can reduce this value to `3` (8x oversampling) if you only want to play standard ProTracker MODs.
 
 ## Building a custom library version
 
@@ -536,7 +576,7 @@ The library can be built under DOS and Windows. The build uses the following too
 - [NASM](https://www.nasm.us/) to compile assembly source code to linkable objects.
 - [Open Watcom](http://www.openwatcom.org/) to make the project and link the executable binary.
 
-The build toolchain is also available for Linux, but I only build under DOS and Windows.
+The build toolchain is also available for Linux, but the build system only supports DOS and Windows.
 
 Download and install the dependencies, then:
 

@@ -297,6 +297,8 @@ mod_dev_none_api istruc mod_dev_api
 		set_api_fn(get_info, noop)
 		set_api_fn(get_position, mod_playroutine_get_position_info)
 		set_api_fn(reset_channels, noop)
+		set_api_fn(set_samplerate, noop)
+		set_api_fn(get_nearest_sr, noop)
 		iend
 
 section .bss

@@ -29,6 +29,8 @@ struc		mod_dev_api
 .get_info	resd 1			; Get output device status info
 .get_position	resd 1			; Get playback position info
 .reset_channels	resd 1			; Reset playback channels
+.set_samplerate	resd 1			; Set sample rate
+.get_nearest_sr	resd 1			; Get nearest sample rate
 		alignb 4
 .strucsize:
 
