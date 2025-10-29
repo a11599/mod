@@ -15,21 +15,21 @@ build = debug
 
 # Target object files
 
-mod = build build\$(build) build\$(build)\mod &
-	build\$(build)\mod\convert.obj &
-	build\$(build)\mod\dev_dac.obj &
-	build\$(build)\mod\dev_none.obj &
-	build\$(build)\mod\dev_sb.obj &
-	build\$(build)\mod\player.obj &
-	build\$(build)\mod\routine.obj &
-	build\$(build)\mod\wtbl_sw.obj
+mod = build build$(ps)$(build) build$(ps)$(build)$(ps)mod &
+	build$(ps)$(build)$(ps)mod$(ps)convert.obj &
+	build$(ps)$(build)$(ps)mod$(ps)dev_dac.obj &
+	build$(ps)$(build)$(ps)mod$(ps)dev_none.obj &
+	build$(ps)$(build)$(ps)mod$(ps)dev_sb.obj &
+	build$(ps)$(build)$(ps)mod$(ps)player.obj &
+	build$(ps)$(build)$(ps)mod$(ps)routine.obj &
+	build$(ps)$(build)$(ps)mod$(ps)wtbl_sw.obj
 
 # Validate build target environment value
 
 build_ok = 0
 !ifeq build debug
 %log_level = debug
-debug_objs = ..\pmi\build\$(build)\rtl\log.obj
+debug_objs = ..$(ps)pmi$(ps)build$(ps)$(build)$(ps)rtl$(ps)log.obj
 build_ok = 1
 !endif
 !ifeq build release
@@ -42,15 +42,6 @@ pmi = abort
 rtl = abort
 !endif
 
-# Append \ at the end of nasm/watcom path variables if not empty
-
-!ifneq nasm_dir
-nasm_dir = $(nasm_dir)\
-!endif
-!ifneq watcom_dir
-watcom_dir = $(watcom_dir)\
-!endif
-
 # Build library
 
 incremental: $(mod)
@@ -59,22 +50,22 @@ full: clean $(mod)
 # Create binary distribution package
 
 dist: .SYMBOLIC
-	$(watcom_dir)wmake full
-	$(watcom_dir)wmake build=release full
+	$(watcom_bin_dir)wmake full
+	$(watcom_bin_dir)wmake build=release full
 	@if not exist dist mkdir dist
-	@if not exist dist\debug mkdir dist\debug
-	@if not exist dist\debug\mod mkdir dist\debug\mod
-	@if not exist dist\release\mod mkdir dist\release\mod
-	@del /q dist\debug\mod\*.*
-	@del /q dist\release\mod\*.*
-	@copy build\debug\mod\*.obj dist\debug\mod
-	@copy build\release\mod\*.obj dist\release\mod
+	@if not exist dist$(ps)debug mkdir dist$(ps)debug
+	@if not exist dist$(ps)debug$(ps)mod mkdir dist$(ps)debug$(ps)mod
+	@if not exist dist$(ps)release$(ps)mod mkdir dist$(ps)release$(ps)mod
+	@$(del) dist$(ps)debug$(ps)mod$(ps)*.*
+	@$(del) dist$(ps)release$(ps)mod$(ps)*.*
+	@$(copy) build$(ps)debug$(ps)mod$(ps)*.obj dist$(ps)debug$(ps)mod
+	@$(copy) build$(ps)release$(ps)mod$(ps)*.obj dist$(ps)release$(ps)mod
 
 # Cleanup
 
 clean: .SYMBOLIC .MULTIPLE
-	@if exist build\$(build)\mod del /q build\$(build)\mod\*.*
-	@if exist build\$(build)\mod rmdir build\$(build)\mod
+	@if exist build$(ps)$(build)$(ps)mod $(del) build$(ps)$(build)$(ps)mod$(ps)*.*
+	@if exist build$(ps)$(build)$(ps)mod rmdir build$(ps)$(build)$(ps)mod
 
 
 #------------------------------------------------------------------------------
@@ -92,104 +83,104 @@ abort:
 build: .SYMBOLIC .ALWAYS
 	@if not exist build mkdir build
 
-build\$(build): build .SYMBOLIC .ALWAYS
-	@if not exist build\$(build) mkdir build\$(build)
+build$(ps)$(build): build .SYMBOLIC .ALWAYS
+	@if not exist build$(ps)$(build) mkdir build$(ps)$(build)
 
-build\$(build)\mod: build\$(build) .SYMBOLIC .ALWAYS
-	@if not exist build\$(build)\mod mkdir build\$(build)\mod
+build$(ps)$(build)$(ps)mod: build$(ps)$(build) .SYMBOLIC .ALWAYS
+	@if not exist build$(ps)$(build)$(ps)mod mkdir build$(ps)$(build)$(ps)mod
 
 # .inc file dependencies
 
-src\mod\api\mod.inc: &
-	src\mod\consts\public.inc &
-	src\mod\structs\public.inc
+src$(ps)mod$(ps)api$(ps)mod.inc: &
+	src$(ps)mod$(ps)consts$(ps)public.inc &
+	src$(ps)mod$(ps)structs$(ps)public.inc
 
-	$(watcom_dir)wtouch src\mod\api\mod.inc
+	$(watcom_bin_dir)wtouch src$(ps)mod$(ps)api$(ps)mod.inc
 
 # .obj file dependencies with included external files and build instructions
 
-build\$(build)\mod\convert.obj: src\mod\convert.asm
+build$(ps)$(build)$(ps)mod$(ps)convert.obj: src$(ps)mod$(ps)convert.asm
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@
 
-build\$(build)\mod\dev_dac.obj: src\mod\dev_dac.asm &
-	..\pmi\src\pmi\api\pmi.inc &
-	..\pmi\src\rtl\api\string.inc &
-	..\pmi\src\rtl\api\log.inc &
-	..\pmi\src\rtl\api\irq.inc &
-	..\pmi\src\rtl\api\timer.inc &
-	src\mod\config.inc &
-	src\mod\api\wtbl_sw.inc &
-	src\mod\api\routine.inc &
-	src\mod\structs\public.inc &
-	src\mod\consts\public.inc &
-	src\mod\structs\dev.inc &
-	src\mod\consts\dev.inc
+build$(ps)$(build)$(ps)mod$(ps)dev_dac.obj: src$(ps)mod$(ps)dev_dac.asm &
+	..$(ps)pmi$(ps)src$(ps)pmi$(ps)api$(ps)pmi.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)string.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)log.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)irq.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)timer.inc &
+	src$(ps)mod$(ps)config.inc &
+	src$(ps)mod$(ps)api$(ps)wtbl_sw.inc &
+	src$(ps)mod$(ps)api$(ps)routine.inc &
+	src$(ps)mod$(ps)structs$(ps)public.inc &
+	src$(ps)mod$(ps)consts$(ps)public.inc &
+	src$(ps)mod$(ps)structs$(ps)dev.inc &
+	src$(ps)mod$(ps)consts$(ps)dev.inc
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@
 
-build\$(build)\mod\dev_none.obj: src\mod\dev_none.asm &
-	..\pmi\src\pmi\api\pmi.inc &
-	..\pmi\src\rtl\api\string.inc &
-	..\pmi\src\rtl\api\log.inc &
-	..\pmi\src\rtl\api\irq.inc &
-	..\pmi\src\rtl\api\timer.inc &
-	src\mod\api\routine.inc &
-	src\mod\structs\dev.inc
+build$(ps)$(build)$(ps)mod$(ps)dev_none.obj: src$(ps)mod$(ps)dev_none.asm &
+	..$(ps)pmi$(ps)src$(ps)pmi$(ps)api$(ps)pmi.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)string.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)log.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)irq.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)timer.inc &
+	src$(ps)mod$(ps)api$(ps)routine.inc &
+	src$(ps)mod$(ps)structs$(ps)dev.inc
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@
 
-build\$(build)\mod\dev_sb.obj: src\mod\dev_sb.asm &
-	..\pmi\src\pmi\api\pmi.inc &
-	..\pmi\src\rtl\api\env_arg.inc &
-	..\pmi\src\rtl\api\string.inc &
-	..\pmi\src\rtl\api\log.inc &
-	..\pmi\src\rtl\api\irq.inc &
-	src\mod\config.inc &
-	src\mod\api\wtbl_sw.inc &
-	src\mod\api\routine.inc &
-	src\mod\structs\public.inc &
-	src\mod\consts\public.inc &
-	src\mod\structs\dev.inc &
-	src\mod\consts\dev.inc
+build$(ps)$(build)$(ps)mod$(ps)dev_sb.obj: src$(ps)mod$(ps)dev_sb.asm &
+	..$(ps)pmi$(ps)src$(ps)pmi$(ps)api$(ps)pmi.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)env_arg.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)string.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)log.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)irq.inc &
+	src$(ps)mod$(ps)config.inc &
+	src$(ps)mod$(ps)api$(ps)wtbl_sw.inc &
+	src$(ps)mod$(ps)api$(ps)routine.inc &
+	src$(ps)mod$(ps)structs$(ps)public.inc &
+	src$(ps)mod$(ps)consts$(ps)public.inc &
+	src$(ps)mod$(ps)structs$(ps)dev.inc &
+	src$(ps)mod$(ps)consts$(ps)dev.inc
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@
 
-build\$(build)\mod\player.obj: src\mod\player.asm &
-	..\pmi\src\pmi\api\pmi.inc &
-	..\pmi\src\rtl\api\env_arg.inc &
-	..\pmi\src\rtl\api\string.inc &
-	..\pmi\src\rtl\api\log.inc &
-	src\mod\config.inc &
-	src\mod\api\convert.inc &
-	src\mod\api\routine.inc &
-	src\mod\structs\public.inc &
-	src\mod\consts\public.inc &
-	src\mod\structs\mod_file.inc &
-	src\mod\structs\dev.inc
+build$(ps)$(build)$(ps)mod$(ps)player.obj: src$(ps)mod$(ps)player.asm &
+	..$(ps)pmi$(ps)src$(ps)pmi$(ps)api$(ps)pmi.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)env_arg.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)string.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)log.inc &
+	src$(ps)mod$(ps)config.inc &
+	src$(ps)mod$(ps)api$(ps)convert.inc &
+	src$(ps)mod$(ps)api$(ps)routine.inc &
+	src$(ps)mod$(ps)structs$(ps)public.inc &
+	src$(ps)mod$(ps)consts$(ps)public.inc &
+	src$(ps)mod$(ps)structs$(ps)mod_file.inc &
+	src$(ps)mod$(ps)structs$(ps)dev.inc
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@
 
-build\$(build)\mod\routine.obj: src\mod\routine.asm &
-	..\pmi\src\pmi\api\pmi.inc &
-	..\pmi\src\rtl\api\string.inc &
-	..\pmi\src\rtl\api\log.inc &
-	src\mod\config.inc &
-	src\mod\api\convert.inc &
-	src\mod\structs\public.inc &
-	src\mod\structs\mod_file.inc &
-	src\mod\consts\dev.inc &
-	src\mod\structs\dev.inc
+build$(ps)$(build)$(ps)mod$(ps)routine.obj: src$(ps)mod$(ps)routine.asm &
+	..$(ps)pmi$(ps)src$(ps)pmi$(ps)api$(ps)pmi.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)string.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)log.inc &
+	src$(ps)mod$(ps)config.inc &
+	src$(ps)mod$(ps)api$(ps)convert.inc &
+	src$(ps)mod$(ps)structs$(ps)public.inc &
+	src$(ps)mod$(ps)structs$(ps)mod_file.inc &
+	src$(ps)mod$(ps)consts$(ps)dev.inc &
+	src$(ps)mod$(ps)structs$(ps)dev.inc
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@
 
-build\$(build)\mod\wtbl_sw.obj: src\mod\wtbl_sw.asm &
-	..\pmi\src\pmi\api\pmi.inc &
-	..\pmi\src\rtl\api\string.inc &
-	..\pmi\src\rtl\api\log.inc &
-	src\mod\config.inc &
-	src\mod\structs\public.inc &
-	src\mod\consts\dev.inc &
-	src\mod\structs\mod_file.inc
+build$(ps)$(build)$(ps)mod$(ps)wtbl_sw.obj: src$(ps)mod$(ps)wtbl_sw.asm &
+	..$(ps)pmi$(ps)src$(ps)pmi$(ps)api$(ps)pmi.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)string.inc &
+	..$(ps)pmi$(ps)src$(ps)rtl$(ps)api$(ps)log.inc &
+	src$(ps)mod$(ps)config.inc &
+	src$(ps)mod$(ps)structs$(ps)public.inc &
+	src$(ps)mod$(ps)consts$(ps)dev.inc &
+	src$(ps)mod$(ps)structs$(ps)mod_file.inc
 
-	$(nasm_dir)nasm $(nasm_pe_opts) $[@ -o $^@
+	$(nasm_bin) $(nasm_pe_opts) $[@ -o $^@

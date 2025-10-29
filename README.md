@@ -104,7 +104,7 @@ The bare minimum sequence for MOD playback:
 - Call `mod_play` to start playback
 - Call `mod_shutdown` to shutdown the library and stop playback
 
-Link all `.obj` files of the MOD library produced by `wmake` or `wmake build=release` (see chapter on building the library) to the final executable. The library also requires the following runtime library modules from PMI to be linked to the final executable:
+Link all `.obj` files of the MOD library produced by `make` or `make build=release` (see chapter on building the library) to the final executable. The library also requires the following runtime library modules from PMI to be linked to the final executable:
 
 - `env_arg`
 - `string`
@@ -571,20 +571,17 @@ The MOD library supports a few compilation-time parameters defined in `src\mod\c
 
 ## Building a custom library version
 
-The library can be built under DOS and Windows. The build uses the following toolchain:
+The library can be built under DOS, Windows and Linux.
 
-- [NASM](https://www.nasm.us/) to compile assembly source code to linkable objects.
-- [Open Watcom](http://www.openwatcom.org/) to make the project and link the executable binary.
+To build it:
 
-The build toolchain is also available for Linux, but the build system only supports DOS and Windows.
-
-Download and install the dependencies, then:
-
-- Copy `makeinit.sam` to `makeinit` and set the following parameters:
-  - `nasm_dir`: Path to directory containing nasm.exe (NASM binary).
-  - `watcom_dir`: Path to directory containing Open Watcom platform-dependent binaries.
-  - If both of them are added to system `PATH`, you don't need to create a `makeinit` file.
-- Download [PMI](https://github.com/a11599/pmi), extract it into the same parent as of `mod` and run `wmake dist` in the PMI folder. The folder structure should look like this:
+- Install [NASM](https://nasm.us).
+- Install [Open Watcom](https://www.openwatcom.org/) tools. For DOS and Windows you can use the 1.9 "final" release, for Linux you need to install a v2 release from the [GitHub releases page](https://github.com/open-watcom/open-watcom-v2/releases). If the Linux x64 installer does not work, just use the x86 version, but make sure to select the appropriate x64 host target.
+- Copy `env.lin` on Linux, `env.win` on Windows or `env.dos` on DOS to `env` and adjust the following parameters:
+  - `NASM_BIN`: Path to NASM executable (usually `nasm` on Linux, `nasm.exe` on Windows and DOS). If `nasm` is added to the path, the parameter can be left empty.
+  - `WATCOM_BIN_DIR` (Linux and Windows only): Path to directory containing Open Watcom platform-dependent binaries. If the directory is added to the path, the parameter can be left empty.
+- (DOS only) The directory containing the Open Watcom platform-dependent binaries MUST be added to the PATH.
+- Download [PMI](https://github.com/a11599/pmi), extract it into the same parent as of `mod` and build the PMI distribution by executing `./make.sh dist` or `make.bat dist` in the PMI folder (see PMI documentation for details). The folder structure should look like this:
 
 ```
   |
@@ -603,10 +600,9 @@ Download and install the dependencies, then:
           ...
 ```
 
-In the project root directory, run `wmake` to create a debug build to `build\debug\mod`. Run `wmake build=release` to create a release build to `build\release\mod`
-
-The following `wmake` targets are also available (append after `wmake` or `wmake build=release`):
-
-- `wmake clean`: Remove compiled binaries in `build\debug` or `build\release` directory.
-- `wmake full`: Force a full recompilation (compilation by default is incremental, only changed source code is recompiled).
-- `wmake dist`: Create a binary distribution package to `dist` directory.
+- Change the current directory to the project folder, then run `./make.sh` on Linux or `make.bat` on Windows and DOS (further referred to as `make`) to create a debug build to `build\debug\mod`.
+- Add the `build=release` parameter to create a release build to `build\release\mod`.
+- Further build targets (append after `make` or `make build=release`) are:
+  - `clean`: Remove compiled binaries in `build\debug` or `build\release` directory.
+  - `full`: Force a full recompilation (compilation by default is incremental, only changed source code is recompiled).
+  - `dist`: Create a binary distribution package to `dist` directory.
